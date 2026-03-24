@@ -32,6 +32,6 @@ This figure shows a randomly generated asymmetric TSP instance with \(N=5\), alo
 
 ### QAOA performance vs depth
 
-![QAOA performance](Figures/QAOA_performance_N=2_ATSP_lam=2.png)
+![QAOA performance](Figures/QAOA_performance_N=2_ATSP_lam=2.jpg)
 
 Average success probability of QAOA as a function of circuit depth \(p\), for \(N=2\) ATSP instances averaged over 100 random problems. The penalty parameter is set to \(\lambda = 2\).
