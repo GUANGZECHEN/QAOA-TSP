@@ -179,9 +179,44 @@ def build_qaoa_circuit(h, J, gammas, betas, N, constrained=False):
 # Backend
 # =========================================================
 
-def _get_backend(simulator=True):
+def _get_backend(simulator=True, noise=False):
+
     if simulator:
-        return AerSimulator()
+
+        # ---------------------------------
+        # Noiseless simulator (default)
+        # ---------------------------------
+        if not noise:
+            return AerSimulator()
+
+        # ---------------------------------
+        # Noisy simulator (T1 + T2)
+        # ---------------------------------
+        from qiskit_aer.noise import NoiseModel, thermal_relaxation_error
+
+        # ===== Physical parameters =====
+        T1 = 100e-6   # 100 microseconds
+        T2 = 80e-6    # must satisfy T2 <= 2*T1
+
+        # Gate times
+        t1q = 30e-9   # 30 ns (single-qubit)
+        t2q = 200e-9  # 200 ns (two-qubit)
+
+        noise_model = NoiseModel()
+
+        # 1-qubit noise
+        error_1q = thermal_relaxation_error(T1, T2, t1q)
+
+        # 2-qubit noise (tensor product)
+        error_2q = thermal_relaxation_error(T1, T2, t2q).tensor(
+                   thermal_relaxation_error(T1, T2, t2q))
+
+        # Attach noise to gates used in your circuit
+        noise_model.add_all_qubit_quantum_error(error_1q, ['rx', 'rz'])
+        noise_model.add_all_qubit_quantum_error(error_2q, ['rzz', 'rxx', 'ryy'])
+
+        return AerSimulator(noise_model=noise_model)
+
     else:
         from qiskit_ibm_runtime import QiskitRuntimeService
         service = QiskitRuntimeService()
@@ -322,7 +357,10 @@ def run_qaoa_qiskit(
     # Initialization
     # =====================================================
 
-    init = np.random.uniform(0, np.pi, size=2 * p)
+    #init = np.random.uniform(0, np.pi, size=2 * p)
+    
+    rng = np.random.default_rng(1234)   # fixed seed
+    init = rng.uniform(0, np.pi, size=2 * p)
 
     # =====================================================
     # Optimizer selection
@@ -364,7 +402,8 @@ def solve_ising_qaoa_qiskit(
     constrained=False,
     debug=False,
     simulator=True,
-    optimizer="COBYLA"
+    noise=False,          
+    optimizer="BFGS"
 ):
 
     tsp.ensure_ising()
@@ -374,21 +413,21 @@ def solve_ising_qaoa_qiskit(
     const = tsp.ising.const
     N = tsp.N
 
-    backend = _get_backend(simulator=simulator)
+    backend = _get_backend(simulator=simulator, noise=noise)
 
     # -------------------------
     # Optimize
     # -------------------------
     params = run_qaoa_qiskit(
-    h, J,
-    backend=backend,
-    p=p,
-    N=N,
-    constrained=constrained,
-    shots=shots,
-    simulator=simulator,
-    optimizer=optimizer,
-    maxiter=100
+        h, J,
+        backend=backend,
+        p=p,
+        N=N,
+        constrained=constrained,
+        shots=shots,
+        simulator=simulator,
+        optimizer=optimizer,
+        maxiter=100
     )
 
     gammas = params[:p]
@@ -413,7 +452,7 @@ def solve_ising_qaoa_qiskit(
         simulator=simulator
     )
 
-    best_E = np.inf
+    best_cost = np.inf
     best_route = None
     valid_count = 0
 
@@ -427,16 +466,20 @@ def solve_ising_qaoa_qiskit(
         valid_count += 1
 
         route = tsp.x_to_route(x)
-        E = z @ J @ z + h @ z + const
+        
+        try:
+            cost = tsp.route_cost(route)
+        except:
+            continue
 
-        if E < best_E:
-            best_E = E
+        if cost < best_cost:
+            best_cost = cost
             best_route = route
 
     if debug:
         print(f"Valid samples: {valid_count}/{shots}")
 
-    return best_route, best_E
+    return best_route, best_cost
     
 from tsp_generator import TSP
 from classical_solver import solve_tsp_bruteforce

@@ -34,7 +34,6 @@ def average_success_probability_vs_p(
         tsp.return_to_start = False
         A = lam * np.max(tsp.distance_matrix)
         tsp.build_qubo(A=A)
-        tsp.return_to_start = True
 
         tsp.ensure_ising()
 
@@ -71,7 +70,7 @@ def average_success_probability_vs_p(
                     constrained=False,
                     simulator=True,
                     optimizer="BFGS",
-                    shots=200,
+                    shots=4,
                     maxiter=100
                 )
                 gammas = params[:p]
@@ -130,4 +129,4 @@ def average_success_probability_vs_p(
 
     return p_values, avg_data, raw_data
     
-average_success_probability_vs_p(lam=0.5, p_max=10)    
+average_success_probability_vs_p(N=2, lam=2.2, p_max=2, num_instances=50)    

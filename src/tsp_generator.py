@@ -2,6 +2,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 from math import sqrt
 import random
+import matplotlib.patches as patches
+import matplotlib.path as mpath
 
 class IsingModel:
     def __init__(self, h, J, const):
@@ -145,9 +147,24 @@ class TSP:
     def x_to_route(self, x):
         N = self.N
         X = x.reshape(N, N)
+
+        # Check binary (optional but safer)
+        if not np.all((X == 0) | (X == 1)):
+            return None
+
+        # Constraint 1: each column sums to 1 (one city per time step)
+        if not np.all(np.sum(X, axis=0) == 1):
+            return None
+
+        # Constraint 2: each row sums to 1 (each city visited once)
+        if not np.all(np.sum(X, axis=1) == 1):
+            return None
+
+        # If valid, extract route
         route = []
         for t in range(N):
             route.append(np.argmax(X[:, t]))
+
         return route
 
     def route_to_x(self, route):
@@ -339,6 +356,83 @@ class TSP:
         N = self.N
 
         # --------------------------------------------------
+        # helper: curved edge + arrow at midpoint
+        # --------------------------------------------------
+        def draw_curved_arrow(ax, p1, p2, curvature=0.25,
+                             color="k", lw=1.5, alpha=1.0):
+
+            x1, y1 = p1
+            x2, y2 = p2
+
+            dx, dy = x2 - x1, y2 - y1
+            dist = np.hypot(dx, dy)
+
+            if dist == 0:
+                return None, None, None
+
+            # perpendicular direction
+            nx, ny = -dy/dist, dx/dist
+
+            # control point (curve)
+            cx = (x1 + x2)/2 + curvature * nx
+            cy = (y1 + y2)/2 + curvature * ny
+
+            Path = mpath.Path
+            path = Path(
+                [(x1, y1), (cx, cy), (x2, y2)],
+                [Path.MOVETO, Path.CURVE3, Path.CURVE3]
+            )
+
+            # draw curve
+            curve = patches.PathPatch(
+                path,
+                facecolor="none",
+                edgecolor=color,
+                linewidth=lw,
+                alpha=alpha,
+                zorder=1
+            )
+            ax.add_patch(curve)
+
+            # ---- midpoint (for arrow)
+            mx = 0.25*x1 + 0.5*cx + 0.25*x2
+            my = 0.25*y1 + 0.5*cy + 0.25*y2
+
+            # tangent direction
+            tx = x2 - x1
+            ty = y2 - y1
+            tnorm = np.hypot(tx, ty)
+
+            if tnorm == 0:
+                return (mx, my), None, (cx, cy)
+
+            tx, ty = tx/tnorm, ty/tnorm
+
+            # arrow centered at midpoint
+            arrow_len = 0.15
+            start_x = mx - tx * arrow_len/2
+            start_y = my - ty * arrow_len/2
+
+            arrow = patches.FancyArrowPatch(
+                (start_x, start_y),
+                (start_x + tx*arrow_len, start_y + ty*arrow_len),
+                arrowstyle='-|>',
+                mutation_scale=14,
+                color=color,
+                linewidth=lw,
+                alpha=alpha,
+                zorder=2
+            )
+            ax.add_patch(arrow)
+
+            # ---- label position (LESS curved → inward)
+            label_scale = 0.2  # 0 = straight line, 1 = full curve
+            lx = (x1 + x2)/2 + curvature * label_scale * nx
+            ly = (y1 + y2)/2 + curvature * label_scale * ny
+
+            return (mx, my), (lx, ly), (cx, cy)
+
+        # --------------------------------------------------
         # choose coordinates
         # --------------------------------------------------
         if self.is_geographical:
@@ -360,111 +454,81 @@ class TSP:
         y = coords[:,1]
 
         plt.figure(figsize=(6,6))
-        plt.scatter(x, y, s=120)
+        ax = plt.gca()
 
-        # city labels
+        plt.scatter(x, y, s=140, zorder=3)
+
+        # city labels (larger)
         for i,(xi,yi) in enumerate(coords):
-            plt.text(xi*1.07, yi*1.07, str(i), fontsize=12)
+            plt.text(xi*1.1, yi*1.1, str(i),
+                     fontsize=14, ha="center", va="center")
+
+        # --------------------------------------------------
+        # color map
+        # --------------------------------------------------
+        cmap = plt.cm.get_cmap("tab10", N)
 
         # --------------------------------------------------
         # draw edges
         # --------------------------------------------------
-
-        # --------------------------------------------------
-        # draw edges
-        # --------------------------------------------------
-
         if self.distance_matrix is not None:
 
             for i in range(N):
                 for j in range(i+1, N):
 
-                    x1,y1 = coords[i]
-                    x2,y2 = coords[j]
+                    p1 = coords[i]
+                    p2 = coords[j]
 
-                    cost_ij = self.distance_matrix[i,j]
-                    cost_ji = self.distance_matrix[j,i]
-
-                    xm = (x1+x2)/2
-                    ym = (y1+y2)/2
-
-                    # -----------------------------
-                    # symmetric case
-                    # -----------------------------
+                    cost_ij = int(self.distance_matrix[i,j])
+                    cost_ji = int(self.distance_matrix[j,i])
 
                     if self.is_symmetric:
 
-                        plt.plot([x1,x2],[y1,y2], color="gray", alpha=0.5)
-
-                        plt.text(
-                            xm,
-                            ym,
-                            f"{cost_ij:.1f}",
-                            fontsize=9,
-                            ha="center"
-                        )
-
-                    # -----------------------------
-                    # asymmetric case
-                    # -----------------------------
+                        plt.plot([p1[0],p2[0]],
+                                 [p1[1],p2[1]],
+                                 color="gray", alpha=0.4)
 
                     else:
 
-                        # arrow i → j
-                        plt.arrow(
-                            x1,y1,
-                            (x2-x1)*0.8,
-                            (y2-y1)*0.8,
-                            head_width=0.035,
-                            length_includes_head=True,
-                            color="red",
+                        base_curv = 0.25
+
+                        color_i = cmap(i)
+                        color_j = cmap(j)
+
+                        # i → j
+                        _, label1, _ = draw_curved_arrow(
+                            ax, p1, p2,
+                            curvature=base_curv,
+                            color=color_i,
                             alpha=0.7
                         )
 
-                        # arrow j → i
-                        plt.arrow(
-                            x2,y2,
-                            (x1-x2)*0.8,
-                            (y1-y2)*0.8,
-                            head_width=0.035,
-                            length_includes_head=True,
-                            color="blue",
+                        # j → i
+                        _, label2, _ = draw_curved_arrow(
+                            ax, p2, p1,
+                            curvature=base_curv,
+                            color=color_j,
                             alpha=0.7
                         )
 
-                        # single label with colored costs
-                        plt.text(
-                            xm-0.02,
-                            ym,
-                            f"{cost_ij:.1f}",
-                            color="red",
-                            fontsize=9,
-                            ha="right"
-                        )
+                        # labels (shifted inward, larger)
+                        if label1 is not None:
+                            plt.text(label1[0], label1[1],
+                                     f"{cost_ij}",
+                                     color=color_i,
+                                     fontsize=11,
+                                     ha="center", va="center")
 
-                        plt.text(
-                            xm,
-                            ym,
-                            "/",
-                            color="black",
-                            fontsize=9,
-                            ha="center"
-                        )
-
-                        plt.text(
-                            xm+0.02,
-                            ym,
-                            f"{cost_ji:.1f}",
-                            color="blue",
-                            fontsize=9,
-                            ha="left"
-                        )
-
+                        if label2 is not None:
+                            plt.text(label2[0], label2[1],
+                                     f"{cost_ji}",
+                                     color=color_j,
+                                     fontsize=11,
+                                     ha="center", va="center")
 
         # --------------------------------------------------
-        # draw route if provided
+        # draw route
         # --------------------------------------------------
-
         if route is not None:
 
             if not self.is_valid_route(route):
@@ -477,34 +541,33 @@ class TSP:
                 i = ordered[k]
                 j = ordered[k+1]
 
-                x1,y1 = coords[i]
-                x2,y2 = coords[j]
+                p1 = coords[i]
+                p2 = coords[j]
 
-                dx = x2 - x1
-                dy = y2 - y1
-
-                # symmetric → simple line
                 if self.is_symmetric:
 
-                    plt.plot([x1,x2],[y1,y2],
-                            color="green",
-                            linewidth=3)
+                    plt.plot([p1[0],p2[0]],
+                             [p1[1],p2[1]],
+                             color="darkred",
+                             linewidth=3,
+                             zorder=5)
 
-                # asymmetric → arrow
                 else:
 
-                   plt.arrow(
-                        x1, y1,
-                        dx, dy,
-                        head_width=0.05,
-                        length_includes_head=True,
-                        color="green",
-                        linewidth=2
+                    draw_curved_arrow(
+                        ax, p1, p2,
+                        curvature=0.25,
+                        color="darkred",
+                        lw=3,
+                        alpha=1.0
                     )
 
-
+        # --------------------------------------------------
+        # clean look
+        # --------------------------------------------------
         plt.axis("equal")
-        plt.title(self.name if self.name else "TSP instance")
+        plt.axis("off")
+        plt.tight_layout()
         plt.show()
 
     # ---------------------------------------------------------
