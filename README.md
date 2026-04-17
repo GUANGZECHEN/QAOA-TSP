@@ -29,7 +29,7 @@ This repository implements a full pipeline for solving the Traveling Salesman Pr
 
 ![ATSP-5 example](Figures/ATSP5.jpg)
 
-This figure shows a randomly generated asymmetric TSP instance with \(N=5\), along with its optimal route (green) obtained from the classical exact solver.
+This figure shows a randomly generated asymmetric TSP instance with N=5, along with its optimal route (dark red) obtained from the classical exact solver.
 
 ---
 
